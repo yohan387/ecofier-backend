@@ -11,6 +11,7 @@ class ClientBase(BaseModel):
     nom: str
     prenoms: str
     telephone: str
+    mot_de_passe_hash: str
 
     @field_validator("nom", "prenoms", "telephone", mode="before")
     def not_empty(cls, value, field):
@@ -30,7 +31,7 @@ class ClientUpdate(BaseModel):
 
 class ClientDB(ClientBase):
     id: str = Field(..., alias="_id")
-    created_at: datetime = Field(default_factory=datetime.now(datetime.timezone.utc))
+    created_at: datetime = Field(default_factory=datetime.now())
 
 
 # ==============================
@@ -67,22 +68,24 @@ class UtilisateurUpdate(BaseModel):
 
 class UtilisateurDB(UtilisateurBase):
     id: str = Field(..., alias="_id")
-    created_at: datetime = Field(default_factory=datetime.now(datetime.timezone.utc))
+    created_at: datetime = Field(default_factory=datetime.now())
     dernier_login: Optional[datetime] = None   
 
 class LoginRequest(BaseModel):
-    nom_utilisateur: str
+    telephone: str
     mot_de_passe_en_clair: str
 
-class RegisterRequest(BaseModel):
-    nom_utilisateur: str
-    mot_de_passe_en_clair: str
+class RegisterClientRequest(BaseModel):
+    nom: str
+    prenoms: str
     telephone: str
+    mot_de_passe_en_clair: str
+
 
 class ChangePasswordRequest(BaseModel):
-    nom_utilisateur: str
-    mot_de_passe_en_clair: str
     telephone: str
+    mot_de_passe_en_clair: str
+    
 
 
 # ==============================
@@ -127,7 +130,7 @@ class PeseeCreate(PeseeBase):
 
 class PeseeDB(PeseeBase):
     id: str = Field(..., alias="_id")
-    created_at: datetime = Field(default_factory=datetime.now(datetime.timezone.utc))
+    created_at: datetime = Field(default_factory=datetime.now())
 
     class Config:
         populate_by_name = True

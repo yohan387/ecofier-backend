@@ -3,7 +3,7 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 
 DATABASE_URL = 'mongodb://localhost:27017/'
-DATABASE_NAME = 'test_crud'
+DATABASE_NAME = 'ecofier_1'
 
 CLIENT_MONGO = AsyncIOMotorClient(DATABASE_URL)
 DATABASE = CLIENT_MONGO[DATABASE_NAME]
