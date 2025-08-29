@@ -4,39 +4,6 @@ from datetime import date, time, datetime
 from pydantic import BaseModel, Field, field_validator
 from bson import ObjectId
 
-class AddProd(BaseModel):
-    title: str
-    price: int
-    
-    
-    @field_validator('title', mode="before")
-    def valid_title(cls, value):
-        if not value:
-            raise ValueError("veuillez saisir le titre")
-        return value
-    
-class UpdateProd(BaseModel):
-    title: Optional[str] = None
-    price: Optional[int] = None
-    
-
-
-
-# ==============================
-# ObjectId Support
-# ==============================
-class PyObjectId(ObjectId):
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-    
-    @classmethod
-    def validate(cls, v):
-        if not ObjectId.is_valid(v):
-            raise ValueError("Invalid ObjectId")
-        return ObjectId(v)
-
-
 # ==============================
 # CLIENT
 # ==============================
@@ -62,13 +29,8 @@ class ClientUpdate(BaseModel):
 
 
 class ClientDB(ClientBase):
-    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-    class Config:
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str}
+    id: str = Field(..., alias="_id")
+    created_at: datetime = Field(default_factory=datetime.now(datetime.timezone.utc))
 
 
 # ==============================
@@ -76,10 +38,10 @@ class ClientDB(ClientBase):
 # ==============================
 class UtilisateurBase(BaseModel):
     nom_utilisateur: str
-    mot_de_passe_hash: str
+    mot_de_passe_hash: str  # mot de passe haché (bcrypt)
     est_administrateur: bool = False
     compte_actif: bool = True
-    client_id: PyObjectId
+    client_id: str
 
     @field_validator("nom_utilisateur", "mot_de_passe_hash", mode="before")
     def not_empty(cls, value, field):
@@ -90,27 +52,37 @@ class UtilisateurBase(BaseModel):
 
 class UtilisateurCreate(BaseModel):
     nom_utilisateur: str
-    mot_de_passe_hash: str
+    mot_de_passe_en_clair: str
     est_administrateur: bool = False
     compte_actif: bool = True
     client_id: str  
 
+
 class UtilisateurUpdate(BaseModel):
     nom_utilisateur: Optional[str] = None
-    mot_de_passe_hash: Optional[str] = None
     est_administrateur: Optional[bool] = None
     compte_actif: Optional[bool] = None
     client_id: Optional[str] = None
 
 
 class UtilisateurDB(UtilisateurBase):
-    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    id: str = Field(..., alias="_id")
+    created_at: datetime = Field(default_factory=datetime.now(datetime.timezone.utc))
+    dernier_login: Optional[datetime] = None   
 
-    class Config:
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str}
+class LoginRequest(BaseModel):
+    nom_utilisateur: str
+    mot_de_passe_en_clair: str
+
+class RegisterRequest(BaseModel):
+    nom_utilisateur: str
+    mot_de_passe_en_clair: str
+    telephone: str
+
+class ChangePasswordRequest(BaseModel):
+    nom_utilisateur: str
+    mot_de_passe_en_clair: str
+    telephone: str
 
 
 # ==============================
@@ -154,10 +126,11 @@ class PeseeCreate(PeseeBase):
 
 
 class PeseeDB(PeseeBase):
-    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    id: str = Field(..., alias="_id")
+    created_at: datetime = Field(default_factory=datetime.now(datetime.timezone.utc))
 
     class Config:
         populate_by_name = True
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
+

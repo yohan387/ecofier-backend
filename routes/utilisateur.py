@@ -1,11 +1,13 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from bson import ObjectId
 from pymongo.errors import PyMongoError
+from auth_bearer import JWTBearer
+from routes.login import hash_password
 from schema import UtilisateurCreate, UtilisateurUpdate
 from database import DATABASE
 from serialize import convert_data
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(JWTBearer())])
 
 
 # ==============================
@@ -41,11 +43,14 @@ async def get_one_utilisateur(utilisateur_id: str):
 async def create_utilisateur(data: UtilisateurCreate):
     try:
         insert_data = data.model_dump()
+        # hash du mot de passe
+        insert_data["mot_de_passe_hash"] = hash_password(insert_data.pop("mot_de_passe"))
         insert_data["client_id"] = ObjectId(insert_data["client_id"])
         result = await DATABASE["utilisateurs"].insert_one(insert_data)
         return {"message": "Utilisateur ajouté", "id": str(result.inserted_id)}
     except PyMongoError:
         raise HTTPException(status_code=500, detail="Database erreur")
+
 
 
 # ==============================
@@ -54,7 +59,7 @@ async def create_utilisateur(data: UtilisateurCreate):
 @router.put("/utilisateurs/{utilisateur_id}")
 async def update_utilisateur(utilisateur_id: str, data: UtilisateurUpdate):
     try:
-        update_data = data.model_dump(exclude_none=True)
+        update_data = data.model_dump(exclude_none=True, exclude_unset=True)
         result = await DATABASE["utilisateurs"].update_one(
             {"_id": ObjectId(utilisateur_id)},
             {"$set": update_data}
