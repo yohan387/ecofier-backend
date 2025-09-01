@@ -6,20 +6,9 @@ from dotenv import load_dotenv
 from database import init_db, close_db
 from contextlib import asynccontextmanager
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # 👉 Code exécuté au démarrage
-    await init_db()
-    yield
-    # 👉 Code exécuté à l’arrêt
-    await close_db()
-
 app = FastAPI(
     title="Backend Ecofier",
-    lifespan=lifespan
 )
-
 
 
 app.include_router(clients.router)
