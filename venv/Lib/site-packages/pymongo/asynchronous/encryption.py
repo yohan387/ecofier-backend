@@ -87,7 +87,7 @@ from pymongo.read_concern import ReadConcern
 from pymongo.results import BulkWriteResult, DeleteResult
 from pymongo.ssl_support import BLOCKING_IO_ERRORS, get_ssl_context
 from pymongo.typings import _DocumentType, _DocumentTypeArg
-from pymongo.uri_parser_shared import _parse_kms_tls_options, parse_host
+from pymongo.uri_parser_shared import parse_host
 from pymongo.write_concern import WriteConcern
 
 if TYPE_CHECKING:
@@ -157,7 +157,6 @@ class _EncryptionIO(AsyncMongoCryptCallback):  # type: ignore[misc]
         self.mongocryptd_client = mongocryptd_client
         self.opts = opts
         self._spawned = False
-        self._kms_ssl_contexts = opts._kms_ssl_contexts(_IS_SYNC)
 
     async def kms_request(self, kms_context: MongoCryptKmsContext) -> None:
         """Complete a KMS request.
@@ -169,7 +168,7 @@ class _EncryptionIO(AsyncMongoCryptCallback):  # type: ignore[misc]
         endpoint = kms_context.endpoint
         message = kms_context.message
         provider = kms_context.kms_provider
-        ctx = self._kms_ssl_contexts.get(provider)
+        ctx = self.opts._kms_ssl_contexts.get(provider)
         if ctx is None:
             # Enable strict certificate verification, OCSP, match hostname, and
             # SNI using the system default CA certificates.
@@ -181,7 +180,6 @@ class _EncryptionIO(AsyncMongoCryptCallback):  # type: ignore[misc]
                 False,  # allow_invalid_certificates
                 False,  # allow_invalid_hostnames
                 False,  # disable_ocsp_endpoint_check
-                _IS_SYNC,
             )
         # CSOT: set timeout for socket creation.
         connect_timeout = max(_csot.clamp_remaining(_KMS_CONNECT_TIMEOUT), 0.001)
@@ -398,8 +396,6 @@ class _Encrypter:
             encrypted_fields_map = _dict_to_bson(opts._encrypted_fields_map, False, _DATA_KEY_OPTS)
         self._bypass_auto_encryption = opts._bypass_auto_encryption
         self._internal_client = None
-        # parsing kms_ssl_contexts here so that parsing errors will be raised before internal clients are created
-        opts._kms_ssl_contexts(_IS_SYNC)
 
         def _get_internal_client(
             encrypter: _Encrypter, mongo_client: AsyncMongoClient[_DocumentTypeArg]
@@ -679,7 +675,6 @@ class AsyncClientEncryption(Generic[_DocumentType]):
             kms_tls_options=kms_tls_options,
             key_expiration_ms=key_expiration_ms,
         )
-        self._kms_ssl_contexts = _parse_kms_tls_options(opts._kms_tls_options, _IS_SYNC)
         self._io_callbacks: Optional[_EncryptionIO] = _EncryptionIO(
             None, key_vault_coll, None, opts
         )

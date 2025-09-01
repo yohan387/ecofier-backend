@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import collections
 import contextlib
 import logging
@@ -76,7 +75,6 @@ from pymongo.monitoring import (
 from pymongo.network_layer import AsyncNetworkingInterface, async_receive_message, async_sendall
 from pymongo.pool_options import PoolOptions
 from pymongo.pool_shared import (
-    SSLErrors,
     _CancellationContext,
     _configured_protocol_interface,
     _get_timeout_details,
@@ -87,6 +85,7 @@ from pymongo.read_preferences import ReadPreference
 from pymongo.server_api import _add_to_command
 from pymongo.server_type import SERVER_TYPE
 from pymongo.socket_checker import SocketChecker
+from pymongo.ssl_support import SSLError
 
 if TYPE_CHECKING:
     from bson import CodecOptions
@@ -131,7 +130,6 @@ class AsyncConnection:
     :param pool: a Pool instance
     :param address: the server's (host, port)
     :param id: the id of this socket in it's pool
-    :param is_sdam: SDAM connections do not call hello on creation
     """
 
     def __init__(
@@ -140,13 +138,11 @@ class AsyncConnection:
         pool: Pool,
         address: tuple[str, int],
         id: int,
-        is_sdam: bool,
     ):
         self.pool_ref = weakref.ref(pool)
         self.conn = conn
         self.address = address
         self.id = id
-        self.is_sdam = is_sdam
         self.closed = False
         self.last_checkin_time = time.monotonic()
         self.performed_handshake = False
@@ -641,7 +637,7 @@ class AsyncConnection:
             reason = ConnectionClosedReason.ERROR
         await self.close_conn(reason)
         # SSLError from PyOpenSSL inherits directly from Exception.
-        if isinstance(error, (IOError, OSError, *SSLErrors)):
+        if isinstance(error, (IOError, OSError, SSLError)):
             details = _get_timeout_details(self.opts)
             _raise_connection_failure(self.address, error, timeout_details=details)
         else:
@@ -714,13 +710,13 @@ class Pool:
         self,
         address: _Address,
         options: PoolOptions,
-        is_sdam: bool = False,
+        handshake: bool = True,
         client_id: Optional[ObjectId] = None,
     ):
         """
         :param address: a (hostname, port) tuple
         :param options: a PoolOptions instance
-        :param is_sdam: whether to call hello for each new AsyncConnection
+        :param handshake: whether to call hello for each new AsyncConnection
         """
         if options.pause_enabled:
             self.state = PoolState.PAUSED
@@ -749,14 +745,14 @@ class Pool:
         self.pid = os.getpid()
         self.address = address
         self.opts = options
-        self.is_sdam = is_sdam
+        self.handshake = handshake
         # Don't publish events or logs in Monitor pools.
         self.enabled_for_cmap = (
-            not self.is_sdam
+            self.handshake
             and self.opts._event_listeners is not None
             and self.opts._event_listeners.enabled_for_cmap
         )
-        self.enabled_for_logging = not self.is_sdam
+        self.enabled_for_logging = self.handshake
 
         # The first portion of the wait queue.
         # Enforces: maxPoolSize
@@ -864,14 +860,8 @@ class Pool:
         # PoolClosedEvent but that reset() SHOULD close sockets *after*
         # publishing the PoolClearedEvent.
         if close:
-            if not _IS_SYNC:
-                await asyncio.gather(
-                    *[conn.close_conn(ConnectionClosedReason.POOL_CLOSED) for conn in sockets],
-                    return_exceptions=True,
-                )
-            else:
-                for conn in sockets:
-                    await conn.close_conn(ConnectionClosedReason.POOL_CLOSED)
+            for conn in sockets:
+                await conn.close_conn(ConnectionClosedReason.POOL_CLOSED)
             if self.enabled_for_cmap:
                 assert listeners is not None
                 listeners.publish_pool_closed(self.address)
@@ -901,14 +891,8 @@ class Pool:
                         serverPort=self.address[1],
                         serviceId=service_id,
                     )
-            if not _IS_SYNC:
-                await asyncio.gather(
-                    *[conn.close_conn(ConnectionClosedReason.STALE) for conn in sockets],
-                    return_exceptions=True,
-                )
-            else:
-                for conn in sockets:
-                    await conn.close_conn(ConnectionClosedReason.STALE)
+            for conn in sockets:
+                await conn.close_conn(ConnectionClosedReason.STALE)
 
     async def update_is_writable(self, is_writable: Optional[bool]) -> None:
         """Updates the is_writable attribute on all sockets currently in the
@@ -954,14 +938,8 @@ class Pool:
                     and self.conns[-1].idle_time_seconds() > self.opts.max_idle_time_seconds
                 ):
                     close_conns.append(self.conns.pop())
-            if not _IS_SYNC:
-                await asyncio.gather(
-                    *[conn.close_conn(ConnectionClosedReason.IDLE) for conn in close_conns],
-                    return_exceptions=True,
-                )
-            else:
-                for conn in close_conns:
-                    await conn.close_conn(ConnectionClosedReason.IDLE)
+            for conn in close_conns:
+                await conn.close_conn(ConnectionClosedReason.IDLE)
 
         while True:
             async with self.size_cond:
@@ -1055,20 +1033,20 @@ class Pool:
                     reason=_verbose_connection_error_reason(ConnectionClosedReason.ERROR),
                     error=ConnectionClosedReason.ERROR,
                 )
-            if isinstance(error, (IOError, OSError, *SSLErrors)):
+            if isinstance(error, (IOError, OSError, SSLError)):
                 details = _get_timeout_details(self.opts)
                 _raise_connection_failure(self.address, error, timeout_details=details)
 
             raise
 
-        conn = AsyncConnection(networking_interface, self, self.address, conn_id, self.is_sdam)  # type: ignore[arg-type]
+        conn = AsyncConnection(networking_interface, self, self.address, conn_id)  # type: ignore[arg-type]
         async with self.lock:
             self.active_contexts.add(conn.cancel_context)
             self.active_contexts.discard(tmp_context)
         if tmp_context.cancelled:
             conn.cancel_context.cancel()
         try:
-            if not self.is_sdam:
+            if self.handshake:
                 await conn.hello()
                 self.is_writable = conn.is_writable
             if handler:

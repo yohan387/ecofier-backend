@@ -154,8 +154,8 @@ class Topology:
                 _SDAM_LOGGER,
                 message=_SDAMStatusMessage.TOPOLOGY_CHANGE,
                 topologyId=self._topology_id,
-                previousDescription=repr(initial_td),
-                newDescription=repr(self._description),
+                previousDescription=initial_td,
+                newDescription=self._description,
             )
 
         for seed in topology_settings.seeds:
@@ -514,8 +514,8 @@ class Topology:
                 _SDAM_LOGGER,
                 message=_SDAMStatusMessage.TOPOLOGY_CHANGE,
                 topologyId=self._topology_id,
-                previousDescription=repr(td_old),
-                newDescription=repr(self._description),
+                previousDescription=td_old,
+                newDescription=self._description,
             )
 
         # Shutdown SRV polling for unsupported cluster types.
@@ -528,6 +528,12 @@ class Topology:
             self._srv_monitor.close()
             if not _IS_SYNC:
                 self._monitor_tasks.append(self._srv_monitor)
+
+        # Clear the pool from a failed heartbeat.
+        if reset_pool:
+            server = self._servers.get(server_description.address)
+            if server:
+                server.pool.reset(interrupt_connections=interrupt_connections)
 
         # Wake anything waiting in select_servers().
         self._condition.notify_all()
@@ -551,11 +557,6 @@ class Topology:
             # that didn't include this server.
             if self._opened and self._description.has_server(server_description.address):
                 self._process_change(server_description, reset_pool, interrupt_connections)
-        # Clear the pool from a failed heartbeat, done outside the lock to avoid blocking on connection close.
-        if reset_pool:
-            server = self._servers.get(server_description.address)
-            if server:
-                server.pool.reset(interrupt_connections=interrupt_connections)
 
     def _process_srv_update(self, seedlist: list[tuple[str, Any]]) -> None:
         """Process a new seedlist on an opened topology.
@@ -581,8 +582,8 @@ class Topology:
                 _SDAM_LOGGER,
                 message=_SDAMStatusMessage.TOPOLOGY_CHANGE,
                 topologyId=self._topology_id,
-                previousDescription=repr(td_old),
-                newDescription=repr(self._description),
+                previousDescription=td_old,
+                newDescription=self._description,
             )
 
     def on_srv_update(self, seedlist: list[tuple[str, Any]]) -> None:
@@ -745,8 +746,8 @@ class Topology:
                 _SDAM_LOGGER,
                 message=_SDAMStatusMessage.TOPOLOGY_CHANGE,
                 topologyId=self._topology_id,
-                previousDescription=repr(old_td),
-                newDescription=repr(self._description),
+                previousDescription=old_td,
+                newDescription=self._description,
             )
             _debug_log(
                 _SDAM_LOGGER, message=_SDAMStatusMessage.STOP_TOPOLOGY, topologyId=self._topology_id
@@ -983,7 +984,7 @@ class Topology:
         )
 
         return self._settings.pool_class(
-            address, monitor_pool_options, is_sdam=True, client_id=self._topology_id
+            address, monitor_pool_options, handshake=False, client_id=self._topology_id
         )
 
     def _error_message(self, selector: Callable[[Selection], Selection]) -> str:

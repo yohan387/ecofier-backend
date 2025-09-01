@@ -101,7 +101,6 @@ from pymongo.operations import (
 )
 from pymongo.read_preferences import ReadPreference, _ServerMode
 from pymongo.results import ClientBulkWriteResult
-from pymongo.server_description import ServerDescription
 from pymongo.server_selectors import writable_server_selector
 from pymongo.server_type import SERVER_TYPE
 from pymongo.synchronous import client_session, database, uri_parser
@@ -778,7 +777,7 @@ class MongoClient(common.BaseObject, Generic[_DocumentType]):
         keyword_opts["document_class"] = doc_class
         self._resolve_srv_info: dict[str, Any] = {"keyword_opts": keyword_opts}
 
-        self._seeds = set()
+        seeds = set()
         is_srv = False
         username = None
         password = None
@@ -803,18 +802,18 @@ class MongoClient(common.BaseObject, Generic[_DocumentType]):
                     srv_max_hosts=srv_max_hosts,
                 )
                 is_srv = entity.startswith(SRV_SCHEME)
-                self._seeds.update(res["nodelist"])
+                seeds.update(res["nodelist"])
                 username = res["username"] or username
                 password = res["password"] or password
                 dbase = res["database"] or dbase
                 opts = res["options"]
                 fqdn = res["fqdn"]
             else:
-                self._seeds.update(split_hosts(entity, self._port))
-        if not self._seeds:
+                seeds.update(split_hosts(entity, self._port))
+        if not seeds:
             raise ConfigurationError("need to specify at least one host")
 
-        for hostname in [node[0] for node in self._seeds]:
+        for hostname in [node[0] for node in seeds]:
             if _detect_external_db(hostname):
                 break
 
@@ -837,7 +836,7 @@ class MongoClient(common.BaseObject, Generic[_DocumentType]):
             srv_service_name = opts.get("srvServiceName", common.SRV_SERVICE_NAME)
 
         srv_max_hosts = srv_max_hosts or opts.get("srvmaxhosts")
-        opts = self._normalize_and_validate_options(opts, self._seeds)
+        opts = self._normalize_and_validate_options(opts, seeds)
 
         # Username and password passed as kwargs override user info in URI.
         username = opts.get("username", username)
@@ -856,7 +855,7 @@ class MongoClient(common.BaseObject, Generic[_DocumentType]):
                 "username": username,
                 "password": password,
                 "dbase": dbase,
-                "seeds": self._seeds,
+                "seeds": seeds,
                 "fqdn": fqdn,
                 "srv_service_name": srv_service_name,
                 "pool_class": pool_class,
@@ -872,7 +871,8 @@ class MongoClient(common.BaseObject, Generic[_DocumentType]):
             self._options.read_concern,
         )
 
-        self._init_based_on_options(self._seeds, srv_max_hosts, srv_service_name)
+        if not is_srv:
+            self._init_based_on_options(seeds, srv_max_hosts, srv_service_name)
 
         self._opened = False
         self._closed = False
@@ -973,7 +973,6 @@ class MongoClient(common.BaseObject, Generic[_DocumentType]):
             srv_service_name=srv_service_name,
             srv_max_hosts=srv_max_hosts,
             server_monitoring_mode=self._options.server_monitoring_mode,
-            topology_id=self._topology_settings._topology_id if self._topology_settings else None,
         )
         if self._options.auto_encryption_opts:
             from pymongo.synchronous.encryption import _Encrypter
@@ -1204,16 +1203,6 @@ class MongoClient(common.BaseObject, Generic[_DocumentType]):
 
         .. versionadded:: 4.0
         """
-        if self._topology is None:
-            servers = {(host, port): ServerDescription((host, port)) for host, port in self._seeds}
-            return TopologyDescription(
-                TOPOLOGY_TYPE.Unknown,
-                servers,
-                None,
-                None,
-                None,
-                self._topology_settings,
-            )
         return self._topology.description
 
     @property
@@ -1227,8 +1216,6 @@ class MongoClient(common.BaseObject, Generic[_DocumentType]):
           to any servers, or a network partition causes it to lose connection
           to all servers.
         """
-        if self._topology is None:
-            return frozenset()
         description = self._topology.description
         return frozenset(s.address for s in description.known_servers)
 
@@ -1583,8 +1570,6 @@ class MongoClient(common.BaseObject, Generic[_DocumentType]):
 
         .. versionadded:: 3.0
         """
-        if self._topology is None:
-            self._get_topology()
         topology_type = self._topology._description.topology_type
         if (
             topology_type == TOPOLOGY_TYPE.Sharded
@@ -1607,8 +1592,6 @@ class MongoClient(common.BaseObject, Generic[_DocumentType]):
         .. versionadded:: 3.0
            MongoClient gained this property in version 3.0.
         """
-        if self._topology is None:
-            self._get_topology()
         return self._topology.get_primary()  # type: ignore[return-value]
 
     @property
@@ -1622,8 +1605,6 @@ class MongoClient(common.BaseObject, Generic[_DocumentType]):
         .. versionadded:: 3.0
            MongoClient gained this property in version 3.0.
         """
-        if self._topology is None:
-            self._get_topology()
         return self._topology.get_secondaries()
 
     @property
@@ -1634,8 +1615,6 @@ class MongoClient(common.BaseObject, Generic[_DocumentType]):
         connected to a replica set, there are no arbiters, or this client was
         created without the `replicaSet` option.
         """
-        if self._topology is None:
-            self._get_topology()
         return self._topology.get_arbiters()
 
     @property
